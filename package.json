@@ -12,7 +12,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"const fs=require('fs');fs.cpSync('src/workflows','dist/workflows',{recursive:true})\"",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
