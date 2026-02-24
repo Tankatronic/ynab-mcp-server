@@ -1,0 +1,47 @@
+{
+  "name": "ynab-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for AI-powered YNAB budget management",
+  "type": "module",
+  "bin": {
+    "ynab-mcp-server": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist/",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "keywords": [
+    "ynab",
+    "mcp",
+    "budget",
+    "finance",
+    "model-context-protocol"
+  ],
+  "author": "Tank",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "csv-parse": "^6.1.0",
+    "ofx-js": "^0.2.0",
+    "ynab": "^2.10.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}

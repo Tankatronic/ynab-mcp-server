@@ -1,0 +1,7 @@
+src/
+test-fixtures/
+vitest.config.ts
+tsconfig.json
+*.test.ts
+*.test.js
+.github/
