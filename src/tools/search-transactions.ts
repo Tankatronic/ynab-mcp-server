@@ -5,6 +5,7 @@ import { resolveBudgetId } from "../ynab/types.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
+import { logger, startTimer } from "../utils/logger.js";
 
 export function registerSearchTransactions(server: McpServer): void {
   server.tool(
@@ -42,6 +43,8 @@ export function registerSearchTransactions(server: McpServer): void {
       transaction_id,
       server_knowledge,
     }) => {
+      const done = startTimer();
+      logger.info("tool", "search_transactions invoked", { budget_id, account_id, category_id, payee_id, since_date, type, transaction_id: !!transaction_id });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
@@ -64,6 +67,7 @@ export function registerSearchTransactions(server: McpServer): void {
             `- **Cleared:** ${txn.cleared}\n` +
             `- **Approved:** ${txn.approved}\n`;
 
+          done("tool", "search_transactions completed (single)", { transaction_id });
           return formatToolResponse(md, txn);
         }
 
@@ -144,8 +148,10 @@ export function registerSearchTransactions(server: McpServer): void {
           server_knowledge: sk,
         };
 
+        done("tool", "search_transactions completed", { resultCount: limited.length, totalCount: transactions.length });
         return formatToolResponse(md, data);
       } catch (error) {
+        logger.error("tool", "search_transactions failed", error);
         return formatError(error);
       }
     },

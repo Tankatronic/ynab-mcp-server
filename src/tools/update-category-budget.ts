@@ -5,6 +5,7 @@ import { resolveBudgetId } from "../ynab/types.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
+import { logger, startTimer } from "../utils/logger.js";
 
 export function registerUpdateCategoryBudget(server: McpServer): void {
   server.tool(
@@ -23,6 +24,8 @@ export function registerUpdateCategoryBudget(server: McpServer): void {
         ),
     },
     async ({ budget_id, category_id, month, budgeted }) => {
+      const done = startTimer();
+      logger.info("tool", "update_category_budget invoked", { budget_id, category_id, month, budgeted });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
@@ -43,6 +46,7 @@ export function registerUpdateCategoryBudget(server: McpServer): void {
           `- **Activity:** ${milliunitsToDisplay(cat.activity)}\n` +
           `- **Balance:** ${milliunitsToDisplay(cat.balance)}\n`;
 
+        done("tool", "update_category_budget completed", { category: cat.name, month });
         return formatToolResponse(md, {
           category_id: cat.id,
           name: cat.name,
@@ -51,6 +55,7 @@ export function registerUpdateCategoryBudget(server: McpServer): void {
           balance: cat.balance,
         });
       } catch (error) {
+        logger.error("tool", "update_category_budget failed", error);
         return formatError(error);
       }
     },

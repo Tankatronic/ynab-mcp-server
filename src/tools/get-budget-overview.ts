@@ -5,6 +5,7 @@ import { resolveBudgetId } from "../ynab/types.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
+import { logger, startTimer } from "../utils/logger.js";
 
 export function registerGetBudgetOverview(server: McpServer): void {
   server.tool(
@@ -19,6 +20,8 @@ export function registerGetBudgetOverview(server: McpServer): void {
         ),
     },
     async ({ budget_id }) => {
+      const done = startTimer();
+      logger.info("tool", "get_budget_overview invoked", { budget_id });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
@@ -75,8 +78,10 @@ export function registerGetBudgetOverview(server: McpServer): void {
           server_knowledge: response.data.server_knowledge,
         };
 
+        done("tool", "get_budget_overview completed", { accounts: accounts.length, categoryGroups: categoryGroups.length });
         return formatToolResponse(md, data);
       } catch (error) {
+        logger.error("tool", "get_budget_overview failed", error);
         return formatError(error);
       }
     },

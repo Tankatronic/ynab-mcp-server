@@ -5,6 +5,7 @@ import { resolveBudgetId } from "../ynab/types.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
+import { logger, startTimer } from "../utils/logger.js";
 
 export function registerCreateTransaction(server: McpServer): void {
   server.tool(
@@ -62,6 +63,8 @@ export function registerCreateTransaction(server: McpServer): void {
       approved,
       splits,
     }) => {
+      const done = startTimer();
+      logger.info("tool", "create_transaction invoked", { budget_id, account_id, date, payee_name, hasSplits: !!(splits && splits.length) });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
@@ -101,11 +104,13 @@ export function registerCreateTransaction(server: McpServer): void {
           `- **Category:** ${created.category_name ?? "Split"}\n` +
           `- **Account:** ${created.account_name}\n`;
 
+        done("tool", "create_transaction completed", { transaction_id: created.id });
         return formatToolResponse(md, {
           transaction_id: created.id,
           transaction: created,
         });
       } catch (error) {
+        logger.error("tool", "create_transaction failed", error);
         return formatError(error);
       }
     },

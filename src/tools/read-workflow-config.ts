@@ -4,6 +4,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
 
 const BUNDLED_DIR = resolve(
   fileURLToPath(import.meta.url),
@@ -58,10 +59,12 @@ export function registerReadWorkflowConfig(server: McpServer): void {
         .describe("Custom workflow directory path. Also checks YNAB_MCP_WORKFLOWS_DIR env var."),
     },
     async ({ name, custom_dir }) => {
+      logger.info("tool", "read_workflow_config invoked", { name, custom_dir });
       try {
         const content = await findConfig(name, custom_dir);
 
         if (!content) {
+          logger.warn("tool", "read_workflow_config: config not found", { name });
           return {
             isError: true,
             content: [
@@ -77,10 +80,12 @@ export function registerReadWorkflowConfig(server: McpServer): void {
           } as const;
         }
 
+        logger.info("tool", "read_workflow_config completed", { name });
         return {
           content: [{ type: "text" as const, text: content }],
         } as const;
       } catch (error) {
+        logger.error("tool", "read_workflow_config failed", error);
         return formatError(error);
       }
     },

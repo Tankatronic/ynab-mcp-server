@@ -7,6 +7,7 @@ import { detectFormat, readFileContent } from "../parsers/detect-format.js";
 import { parseCsvContent, type CsvColumnMapping } from "../parsers/csv-parser.js";
 import { parseOfxContent } from "../parsers/ofx-parser.js";
 import type { ParseResult } from "../parsers/types.js";
+import { logger, startTimer } from "../utils/logger.js";
 
 export function registerParseBankExport(server: McpServer): void {
   server.tool(
@@ -51,6 +52,8 @@ export function registerParseBankExport(server: McpServer): void {
       column_mapping,
       invert_amounts,
     }) => {
+      const done = startTimer();
+      logger.info("tool", "parse_bank_export invoked", { file_path, format_hint });
       try {
         const format =
           format_hint && format_hint !== "auto"
@@ -58,6 +61,7 @@ export function registerParseBankExport(server: McpServer): void {
             : await detectFormat(file_path);
 
         if (format === "unknown") {
+          logger.warn("tool", "parse_bank_export: unsupported format", { file_path });
           return {
             isError: true,
             content: [
@@ -116,6 +120,7 @@ export function registerParseBankExport(server: McpServer): void {
           md += `\n_...and ${result.transactions.length - 50} more transactions_\n`;
         }
 
+        done("tool", "parse_bank_export completed", { format: result.format, transactionCount: result.transactions.length, warnings: result.warnings.length });
         return formatToolResponse(md, {
           format: result.format,
           transaction_count: result.transactions.length,
@@ -125,6 +130,7 @@ export function registerParseBankExport(server: McpServer): void {
           warnings: result.warnings,
         });
       } catch (error) {
+        logger.error("tool", "parse_bank_export failed", error);
         return formatError(error);
       }
     },

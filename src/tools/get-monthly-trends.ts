@@ -5,6 +5,7 @@ import { resolveBudgetId } from "../ynab/types.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
+import { logger, startTimer } from "../utils/logger.js";
 
 export function registerGetMonthlyTrends(server: McpServer): void {
   server.tool(
@@ -20,6 +21,8 @@ export function registerGetMonthlyTrends(server: McpServer): void {
         .describe("Number of recent months to compare (default: 3, max: 12)"),
     },
     async ({ budget_id, num_months }) => {
+      const done = startTimer();
+      logger.info("tool", "get_monthly_trends invoked", { budget_id, num_months });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
@@ -114,8 +117,10 @@ export function registerGetMonthlyTrends(server: McpServer): void {
           }
         }
 
+        done("tool", "get_monthly_trends completed", { monthCount: monthSummaries.length });
         return formatToolResponse(md, { months: monthSummaries });
       } catch (error) {
+        logger.error("tool", "get_monthly_trends failed", error);
         return formatError(error);
       }
     },

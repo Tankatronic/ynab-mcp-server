@@ -5,6 +5,7 @@ import { resolveBudgetId } from "../ynab/types.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
+import { logger, startTimer } from "../utils/logger.js";
 
 export function registerUpdateTransaction(server: McpServer): void {
   server.tool(
@@ -42,6 +43,8 @@ export function registerUpdateTransaction(server: McpServer): void {
       approved,
       flag_color,
     }) => {
+      const done = startTimer();
+      logger.info("tool", "update_transaction invoked", { budget_id, transaction_id, fieldsUpdated: Object.keys({ date, amount, payee_name, payee_id, category_id, memo, cleared, approved, flag_color }).filter(k => ({ date, amount, payee_name, payee_id, category_id, memo, cleared, approved, flag_color } as any)[k] !== undefined) });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
@@ -74,8 +77,10 @@ export function registerUpdateTransaction(server: McpServer): void {
           `- **Account:** ${updated.account_name}\n` +
           `- **Cleared:** ${updated.cleared}\n`;
 
+        done("tool", "update_transaction completed", { transaction_id });
         return formatToolResponse(md, { transaction: updated });
       } catch (error) {
+        logger.error("tool", "update_transaction failed", error);
         return formatError(error);
       }
     },

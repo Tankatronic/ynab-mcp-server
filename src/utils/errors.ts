@@ -2,6 +2,8 @@
  * Centralized error handling with token scrubbing and structured error responses.
  */
 
+import { logger } from "./logger.js";
+
 export type ErrorCode =
   | "NOT_FOUND"
   | "INVALID_INPUT"
@@ -88,6 +90,7 @@ export function formatError(error: unknown): ToolResponse {
   if (isYnabApiError(error)) {
     const ynabError = error as YnabApiError;
     if (ynabError.error.id === "429") {
+      logger.warn("ynab", "Rate limit reached", { errorId: ynabError.error.id });
       return makeErrorResponse(
         "RATE_LIMITED",
         `YNAB API rate limit reached. ${scrubbed}`,
@@ -96,6 +99,7 @@ export function formatError(error: unknown): ToolResponse {
       );
     }
     if (ynabError.error.id === "401") {
+      logger.error("ynab", "Authentication failed — check YNAB_API_TOKEN");
       return makeErrorResponse(
         "UNAUTHORIZED",
         "YNAB API authentication failed. Check your YNAB_API_TOKEN.",
@@ -103,12 +107,15 @@ export function formatError(error: unknown): ToolResponse {
       );
     }
     if (ynabError.error.id === "404") {
+      logger.warn("ynab", "Resource not found", { detail: scrubbed });
       return makeErrorResponse("NOT_FOUND", scrubbed, false);
     }
+    logger.error("ynab", "API error", { errorId: ynabError.error.id, detail: scrubbed });
     return makeErrorResponse("API_ERROR", scrubbed, true);
   }
 
   if (error instanceof ParseError) {
+    logger.error("parser", "Parse error", { message: scrubbed, line: error.line });
     return makeErrorResponse("PARSE_ERROR", scrubbed, false);
   }
 
@@ -117,6 +124,7 @@ export function formatError(error: unknown): ToolResponse {
     "code" in error &&
     (error as NodeJS.ErrnoException).code === "ENOENT"
   ) {
+    logger.error("fs", "File not found", { message: scrubbed });
     return makeErrorResponse(
       "FILE_NOT_FOUND",
       `File not found: ${scrubbed}`,
@@ -124,6 +132,7 @@ export function formatError(error: unknown): ToolResponse {
     );
   }
 
+  logger.error("unknown", "Unexpected error", error);
   return makeErrorResponse("API_ERROR", `Unexpected error: ${scrubbed}`, false);
 }
 

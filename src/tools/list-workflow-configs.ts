@@ -5,6 +5,7 @@ import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
+import { logger } from "../utils/logger.js";
 
 const BUNDLED_DIR = resolve(
   fileURLToPath(import.meta.url),
@@ -24,6 +25,7 @@ export function registerListWorkflowConfigs(server: McpServer): void {
         ),
     },
     async ({ custom_dir }) => {
+      logger.info("tool", "list_workflow_configs invoked", { custom_dir });
       try {
         const configs: Array<{
           name: string;
@@ -78,8 +80,10 @@ export function registerListWorkflowConfigs(server: McpServer): void {
           }
         }
 
+        logger.info("tool", "list_workflow_configs completed", { configCount: configs.length });
         return formatToolResponse(md, { configs });
       } catch (error) {
+        logger.error("tool", "list_workflow_configs failed", error);
         return formatError(error);
       }
     },

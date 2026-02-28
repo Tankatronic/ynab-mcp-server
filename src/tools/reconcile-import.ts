@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
+import { logger } from "../utils/logger.js";
 
 export function registerReconcileImport(server: McpServer): void {
   server.tool(
@@ -33,6 +34,7 @@ export function registerReconcileImport(server: McpServer): void {
       duplicate_count,
       imported_total_amount,
     }) => {
+      logger.info("tool", "reconcile_import invoked", { source_transaction_count, imported_count, duplicate_count });
       const countMatch =
         source_transaction_count === imported_count + duplicate_count;
       const amountMatch = source_total_amount === imported_total_amount;
@@ -57,6 +59,7 @@ export function registerReconcileImport(server: McpServer): void {
         md += `\n**Amount mismatch:** Difference of ${milliunitsToDisplay(diff)}. This may indicate a parsing error or amount sign issue.\n`;
       }
 
+      logger.info("tool", "reconcile_import completed", { allPassed: allGood, countMatch, amountMatch });
       return formatToolResponse(md, {
         all_passed: allGood,
         count_match: countMatch,

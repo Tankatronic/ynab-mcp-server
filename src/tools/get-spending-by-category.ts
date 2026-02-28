@@ -5,6 +5,7 @@ import { resolveBudgetId } from "../ynab/types.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
+import { logger, startTimer } from "../utils/logger.js";
 
 function getCurrentMonth(): string {
   const now = new Date();
@@ -25,6 +26,8 @@ export function registerGetSpendingByCategory(server: McpServer): void {
         ),
     },
     async ({ budget_id, month }) => {
+      const done = startTimer();
+      logger.info("tool", "get_spending_by_category invoked", { budget_id, month });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
@@ -90,8 +93,10 @@ export function registerGetSpendingByCategory(server: McpServer): void {
             })),
         };
 
+        done("tool", "get_spending_by_category completed", { month: targetMonth, categoryCount: data.categories.length });
         return formatToolResponse(md, data);
       } catch (error) {
+        logger.error("tool", "get_spending_by_category failed", error);
         return formatError(error);
       }
     },

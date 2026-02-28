@@ -5,6 +5,7 @@ import { resolveBudgetId } from "../ynab/types.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
+import { logger, startTimer } from "../utils/logger.js";
 
 const importTransactionSchema = z.object({
   date: z.string().describe("Transaction date YYYY-MM-DD"),
@@ -42,6 +43,8 @@ export function registerImportTransactions(server: McpServer): void {
         .describe("Transactions to import"),
     },
     async ({ budget_id, account_id, transactions }) => {
+      const done = startTimer();
+      logger.info("tool", "import_transactions invoked", { budget_id, account_id, transactionCount: transactions.length });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
@@ -89,6 +92,7 @@ export function registerImportTransactions(server: McpServer): void {
           }
         }
 
+        done("tool", "import_transactions completed", { created: createdCount, duplicates: duplicateCount, submitted: transactions.length });
         return formatToolResponse(md, {
           created_count: createdCount,
           duplicate_count: duplicateCount,
@@ -99,6 +103,7 @@ export function registerImportTransactions(server: McpServer): void {
           server_knowledge: data.server_knowledge,
         });
       } catch (error) {
+        logger.error("tool", "import_transactions failed", error);
         return formatError(error);
       }
     },

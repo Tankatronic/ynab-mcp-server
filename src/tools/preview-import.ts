@@ -5,6 +5,7 @@ import { resolveBudgetId } from "../ynab/types.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
+import { logger, startTimer } from "../utils/logger.js";
 
 const parsedTransactionSchema = z.object({
   date: z.string(),
@@ -28,6 +29,8 @@ export function registerPreviewImport(server: McpServer): void {
         .describe("Parsed transactions from parse_bank_export"),
     },
     async ({ budget_id, account_id, transactions }) => {
+      const done = startTimer();
+      logger.info("tool", "preview_import invoked", { budget_id, account_id, transactionCount: transactions.length });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
@@ -130,6 +133,7 @@ export function registerPreviewImport(server: McpServer): void {
           md += `| ${p.date} | ${p.payee} | ${milliunitsToDisplay(p.amount)} | ${p.suggested_category_name ?? "_none_"} | ${p.category_match_confidence} |\n`;
         }
 
+        done("tool", "preview_import completed", { total: transactions.length, categorized: matched, uncategorized: unmatched });
         return formatToolResponse(md, {
           total_count: transactions.length,
           total_amount: totalAmount,
@@ -138,6 +142,7 @@ export function registerPreviewImport(server: McpServer): void {
           previews,
         });
       } catch (error) {
+        logger.error("tool", "preview_import failed", error);
         return formatError(error);
       }
     },
