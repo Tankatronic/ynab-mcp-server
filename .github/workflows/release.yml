@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create GitHub releases
+      id-token: write   # npm provenance
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # Derive the npm dist-tag: pre-release tags (e.g. v0.1.0-beta.1) → beta, else → latest
+      - name: Determine dist-tag
+        id: dist_tag
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == *"-"* ]]; then
+            echo "tag=beta" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npm
+        run: npm publish --access public --tag ${{ steps.dist_tag.outputs.tag }} --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Mark GitHub release as pre-release when the tag contains a pre-release segment
+      - name: Determine if pre-release
+        id: prerelease
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == *"-"* ]]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ steps.prerelease.outputs.value }}
+          generate_release_notes: true
