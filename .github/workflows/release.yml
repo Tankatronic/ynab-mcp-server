@@ -2,24 +2,31 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+      - beta
 
 jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # create GitHub releases
-      id-token: write   # npm provenance
+      contents: write        # push version bump commit + create GitHub release
+      issues: write          # comment on issues resolved by release
+      pull-requests: write   # comment on PRs resolved by release
+      id-token: write        # npm provenance
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # semantic-release needs full history to find previous tags
+          fetch-depth: 0
+          # use a PAT so the version bump commit can trigger CI on next PR
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          registry-url: https://registry.npmjs.org
 
       - run: npm ci
 
@@ -32,35 +39,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Derive the npm dist-tag: pre-release tags (e.g. v0.1.0-beta.1) → beta, else → latest
-      - name: Determine dist-tag
-        id: dist_tag
-        run: |
-          TAG="${{ github.ref_name }}"
-          if [[ "$TAG" == *"-"* ]]; then
-            echo "tag=beta" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish to npm
-        run: npm publish --access public --tag ${{ steps.dist_tag.outputs.tag }} --provenance
+      - name: Release
+        run: npx semantic-release
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # Mark GitHub release as pre-release when the tag contains a pre-release segment
-      - name: Determine if pre-release
-        id: prerelease
-        run: |
-          TAG="${{ github.ref_name }}"
-          if [[ "$TAG" == *"-"* ]]; then
-            echo "value=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          prerelease: ${{ steps.prerelease.outputs.value }}
-          generate_release_notes: true
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
