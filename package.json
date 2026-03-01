@@ -1,6 +1,6 @@
 {
-  "name": "ynab-mcp-server",
-  "version": "1.0.0",
+  "name": "@tankatronic/ynab-mcp-server",
+  "version": "0.1.0",
   "description": "MCP server for AI-powered YNAB budget management",
   "type": "module",
   "bin": {
@@ -11,6 +11,10 @@
     "dist/",
     "LICENSE"
   ],
+  "repository": {
+    "type":"git",
+    "url":"https://github.com/Tankatronic/ynab-mcp-server"
+  },
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');fs.cpSync('src/workflows','dist/workflows',{recursive:true})\"",
     "dev": "tsx src/index.ts",
@@ -29,7 +33,7 @@
     "finance",
     "model-context-protocol"
   ],
-  "author": "Tank",
+  "author": "Tankatronic",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
