@@ -12,8 +12,12 @@
     "LICENSE"
   ],
   "repository": {
-    "type":"git",
-    "url":"https://github.com/Tankatronic/ynab-mcp-server"
+    "type": "git",
+    "url": "https://github.com/Tankatronic/ynab-mcp-server"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');fs.cpSync('src/workflows','dist/workflows',{recursive:true})\"",

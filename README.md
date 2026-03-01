@@ -8,6 +8,12 @@ Unlike YNAB's built-in file import — which requires CSVs to be [reformatted to
 
 Your financial data stays on your machine. The only external call is to the official YNAB API using your personal access token — no data aggregators, no third-party services.
 
+## Installation
+
+```bash
+npm install -g @tankatronic/ynab-mcp-server
+```
+
 ## Quick Start
 
 ### 1. Get a YNAB token
