@@ -135,7 +135,16 @@ export function registerImportTransactions(server: McpServer): void {
         });
       } catch (error) {
         logger.error("tool", "import_transactions failed", error);
-        return formatError(error);
+
+        // Extract actual error details
+        let errorMessage = "Unknown error";
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        } else if (typeof error === "object" && error !== null) {
+          errorMessage = JSON.stringify(error, null, 2);
+        }
+
+        return formatError(new Error(`Import failed: ${errorMessage}`));
       }
     },
   );

@@ -68,7 +68,7 @@ export function registerPreviewImport(server: McpServer): void {
         >();
 
         for (const txn of history) {
-          if (!txn.payee_name || !txn.category_id || !txn.category_name) {
+          if (!txn.payee_name || !txn.category_id) {
             continue;
           }
           const normalized = txn.payee_name.toLowerCase().trim();
@@ -76,7 +76,7 @@ export function registerPreviewImport(server: McpServer): void {
           if (!existing || txn.date > (existing as any).lastDate) {
             payeeCategoryMap.set(normalized, {
               category_id: txn.category_id,
-              category_name: txn.category_name,
+              category_name: txn.category_name || "",
               count: (existing?.count ?? 0) + 1,
             });
           }
@@ -154,6 +154,7 @@ export function registerPreviewImport(server: McpServer): void {
 
         done("tool", "preview_import completed", { total: filteredTransactions.length, filtered: filteredCount, categorized: matched, uncategorized: unmatched });
         return formatToolResponse(md, {
+          account_id,
           total_count: filteredTransactions.length,
           filtered_count: filteredCount,
           total_amount: totalAmount,
@@ -163,7 +164,16 @@ export function registerPreviewImport(server: McpServer): void {
         });
       } catch (error) {
         logger.error("tool", "preview_import failed", error);
-        return formatError(error);
+
+        // Extract actual error details
+        let errorMessage = "Unknown error";
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        } else if (typeof error === "object" && error !== null) {
+          errorMessage = JSON.stringify(error, null, 2);
+        }
+
+        return formatError(new Error(`Preview failed: ${errorMessage}`));
       }
     },
   );
