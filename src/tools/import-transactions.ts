@@ -41,15 +41,42 @@ export function registerImportTransactions(server: McpServer): void {
       transactions: z
         .array(importTransactionSchema)
         .describe("Transactions to import"),
+      since_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+        .optional()
+        .describe("Only import transactions on or after this date (YYYY-MM-DD format)"),
     },
-    async ({ budget_id, account_id, transactions }) => {
+    async ({ budget_id, account_id, transactions, since_date }) => {
       const done = startTimer();
-      logger.info("tool", "import_transactions invoked", { budget_id, account_id, transactionCount: transactions.length });
+      logger.info("tool", "import_transactions invoked", { budget_id, account_id, transactionCount: transactions.length, since_date });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
 
-        const ynabTransactions = transactions.map((t) => ({
+        // Filter transactions by since_date if provided
+        let filteredTransactions = transactions;
+        let filteredCount = 0;
+        if (since_date) {
+          filteredTransactions = transactions.filter((t) => t.date >= since_date);
+          filteredCount = transactions.length - filteredTransactions.length;
+        }
+
+        // Early return if no transactions to import
+        if (filteredTransactions.length === 0) {
+          return formatToolResponse("## Import Complete\n\nNo transactions to import (all filtered by since_date).", {
+            created_count: 0,
+            duplicate_count: 0,
+            filtered_count: filteredCount,
+            total_submitted: 0,
+            total_amount: 0,
+            transaction_ids: [],
+            duplicate_import_ids: [],
+            server_knowledge: undefined,
+          });
+        }
+
+        const ynabTransactions = filteredTransactions.map((t) => ({
           account_id,
           date: t.date,
           amount: t.amount,
@@ -74,7 +101,7 @@ export function registerImportTransactions(server: McpServer): void {
         const data = response.data;
         const createdCount = data.transaction_ids?.length ?? 0;
         const duplicateCount = data.duplicate_import_ids?.length ?? 0;
-        const totalAmount = transactions.reduce(
+        const totalAmount = filteredTransactions.reduce(
           (sum, t) => sum + t.amount,
           0,
         );
@@ -82,6 +109,9 @@ export function registerImportTransactions(server: McpServer): void {
         let md = `## Import Complete\n\n`;
         md += `- **Created:** ${createdCount} transactions\n`;
         md += `- **Duplicates skipped:** ${duplicateCount}\n`;
+        if (filteredCount > 0) {
+          md += `- **Filtered:** ${filteredCount} (before ${since_date})\n`;
+        }
         md += `- **Total amount:** ${milliunitsToDisplay(totalAmount)}\n`;
 
         if (duplicateCount > 0) {
@@ -92,11 +122,12 @@ export function registerImportTransactions(server: McpServer): void {
           }
         }
 
-        done("tool", "import_transactions completed", { created: createdCount, duplicates: duplicateCount, submitted: transactions.length });
+        done("tool", "import_transactions completed", { created: createdCount, duplicates: duplicateCount, filtered: filteredCount, submitted: filteredTransactions.length });
         return formatToolResponse(md, {
           created_count: createdCount,
           duplicate_count: duplicateCount,
-          total_submitted: transactions.length,
+          filtered_count: filteredCount,
+          total_submitted: filteredTransactions.length,
           total_amount: totalAmount,
           transaction_ids: data.transaction_ids,
           duplicate_import_ids: data.duplicate_import_ids,

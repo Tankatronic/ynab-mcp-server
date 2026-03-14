@@ -27,13 +27,26 @@ export function registerPreviewImport(server: McpServer): void {
       transactions: z
         .array(parsedTransactionSchema)
         .describe("Parsed transactions from parse_bank_export"),
+      since_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+        .optional()
+        .describe("Only include transactions on or after this date (YYYY-MM-DD format)"),
     },
-    async ({ budget_id, account_id, transactions }) => {
+    async ({ budget_id, account_id, transactions, since_date }) => {
       const done = startTimer();
-      logger.info("tool", "preview_import invoked", { budget_id, account_id, transactionCount: transactions.length });
+      logger.info("tool", "preview_import invoked", { budget_id, account_id, transactionCount: transactions.length, since_date });
       try {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
+
+        // Filter transactions by since_date if provided
+        let filteredTransactions = transactions;
+        let filteredCount = 0;
+        if (since_date) {
+          filteredTransactions = transactions.filter((t) => t.date >= since_date);
+          filteredCount = transactions.length - filteredTransactions.length;
+        }
 
         // Fetch recent transactions for this account to build payee-to-category map
         const threeMonthsAgo = new Date();
@@ -74,7 +87,7 @@ export function registerPreviewImport(server: McpServer): void {
         const ynabPayees = payeesResp.data.payees.filter((p) => !p.deleted);
 
         // Match each transaction
-        const previews = transactions.map((txn) => {
+        const previews = filteredTransactions.map((txn) => {
           const normalizedPayee = txn.payee.toLowerCase().trim();
 
           // Try exact match first
@@ -116,15 +129,21 @@ export function registerPreviewImport(server: McpServer): void {
 
         const matched = previews.filter((p) => p.suggested_category_id).length;
         const unmatched = previews.length - matched;
-        const totalAmount = transactions.reduce(
+        const totalAmount = filteredTransactions.reduce(
           (sum, t) => sum + t.amount,
           0,
         );
 
         let md = `## Import Preview\n\n`;
-        md += `- **Transactions:** ${transactions.length}\n`;
+        md += `- **Transactions:** ${filteredTransactions.length}\n`;
+        if (filteredCount > 0) {
+          md += `- **Filtered:** ${filteredCount} (before ${since_date})\n`;
+        }
         md += `- **Total:** ${milliunitsToDisplay(totalAmount)}\n`;
-        md += `- **Categorized:** ${matched} (${Math.round((matched / transactions.length) * 100)}%)\n`;
+        const categorizedPercent = filteredTransactions.length > 0
+          ? Math.round((matched / filteredTransactions.length) * 100)
+          : 0;
+        md += `- **Categorized:** ${matched} (${categorizedPercent}%)\n`;
         md += `- **Uncategorized:** ${unmatched}\n\n`;
 
         md += `| Date | Payee | Amount | Suggested Category | Confidence |\n`;
@@ -133,9 +152,10 @@ export function registerPreviewImport(server: McpServer): void {
           md += `| ${p.date} | ${p.payee} | ${milliunitsToDisplay(p.amount)} | ${p.suggested_category_name ?? "_none_"} | ${p.category_match_confidence} |\n`;
         }
 
-        done("tool", "preview_import completed", { total: transactions.length, categorized: matched, uncategorized: unmatched });
+        done("tool", "preview_import completed", { total: filteredTransactions.length, filtered: filteredCount, categorized: matched, uncategorized: unmatched });
         return formatToolResponse(md, {
-          total_count: transactions.length,
+          total_count: filteredTransactions.length,
+          filtered_count: filteredCount,
           total_amount: totalAmount,
           categorized_count: matched,
           uncategorized_count: unmatched,

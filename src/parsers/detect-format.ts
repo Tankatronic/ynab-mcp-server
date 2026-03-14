@@ -15,6 +15,7 @@ export async function detectFormat(filePath: string): Promise<FileFormat> {
   if (ext === ".ofx") return "ofx";
   if (ext === ".qfx") return "qfx";
   if (ext === ".csv") return "csv";
+  if (ext === ".json") return "json";
 
   // Inspect content for format hints
   const content = await readFile(filePath, "utf-8");
@@ -27,6 +28,11 @@ export async function detectFormat(filePath: string): Promise<FileFormat> {
   // Check for XML/SGML OFX markers
   if (trimmed.includes("<OFX>") || trimmed.includes("<OFX ")) {
     return trimmed.toLowerCase().includes("qfx") ? "qfx" : "ofx";
+  }
+
+  // Check for JSON format
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    return "json";
   }
 
   // Check if it looks like CSV (contains commas or tabs with consistent row structure)

@@ -11,10 +11,10 @@ export interface ParsedTransaction {
 }
 
 export interface ParseResult {
-  format: "csv" | "ofx" | "qfx";
+  format: "csv" | "ofx" | "qfx" | "json";
   transactions: ParsedTransaction[];
   accountName?: string;
   warnings: string[];
 }
 
-export type FileFormat = "csv" | "ofx" | "qfx" | "unknown";
+export type FileFormat = "csv" | "ofx" | "qfx" | "json" | "unknown";
