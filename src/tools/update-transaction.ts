@@ -17,7 +17,12 @@ export function registerUpdateTransaction(server: McpServer): void {
       transaction_id: z.string().describe("ID of the transaction to update"),
       date: z.string().optional().describe("New date (YYYY-MM-DD)"),
       amount: z.number().optional().describe("New amount in milliunits"),
-      payee_name: z.string().optional().describe("New payee name"),
+      payee_name: z
+        .string()
+        .optional()
+        .describe(
+          "New payee name. If this matches a YNAB account name (e.g. \"Schwab Checking\" or \"Transfer : Schwab Checking\"), it is automatically resolved to the correct transfer payee ID. For regular payees, YNAB matches by name as usual.",
+        ),
       payee_id: z.string().optional().describe("New payee ID"),
       category_id: z.string().optional().describe("New category ID"),
       memo: z.string().optional().describe("New memo"),
@@ -58,6 +63,7 @@ export function registerUpdateTransaction(server: McpServer): void {
         if (payee_name !== undefined && payee_id === undefined) {
           const transferMatch = await resolveTransferPayee(ynab, id, payee_name);
           if (transferMatch && "error" in transferMatch) {
+            done("tool", "update_transaction aborted: ambiguous payee", {});
             return formatToolResponse(
               `## Error: Ambiguous Payee\n\n${transferMatch.error}\n\nMatching transfer accounts:\n${transferMatch.matches.map((m) => `- ${m}`).join("\n")}`,
               { error: transferMatch.error, matches: transferMatch.matches },

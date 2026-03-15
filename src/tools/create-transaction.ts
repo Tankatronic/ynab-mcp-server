@@ -24,7 +24,9 @@ export function registerCreateTransaction(server: McpServer): void {
       payee_name: z
         .string()
         .optional()
-        .describe("Payee name. YNAB will match to existing payees."),
+        .describe(
+          "Payee name. If this matches a YNAB account name (e.g. \"Schwab Checking\" or \"Transfer : Schwab Checking\"), it is automatically resolved to the correct transfer payee ID — use this for credit card payments and account transfers. For regular payees, YNAB matches by name as usual.",
+        ),
       payee_id: z.string().optional().describe("Existing payee ID"),
       category_id: z
         .string()
@@ -78,6 +80,7 @@ export function registerCreateTransaction(server: McpServer): void {
         if (payee_name && !payee_id) {
           const transferMatch = await resolveTransferPayee(ynab, id, payee_name);
           if (transferMatch && "error" in transferMatch) {
+            done("tool", "create_transaction aborted: ambiguous payee", {});
             return formatToolResponse(
               `## Error: Ambiguous Payee\n\n${transferMatch.error}\n\nMatching transfer accounts:\n${transferMatch.matches.map((m) => `- ${m}`).join("\n")}`,
               { error: transferMatch.error, matches: transferMatch.matches },

@@ -18,16 +18,27 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const payeeCache = new Map<string, PayeeCache>();
 
 async function getPayees(api: ynab.API, budgetId: string): Promise<ynab.Payee[]> {
-  const cached = payeeCache.get(budgetId);
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-    logger.debug("payee-resolver", "Using cached payees", { budgetId, count: cached.payees.length });
-    return cached.payees;
+  // Skip cache for "last-used" sentinel: YNAB resolves it to whichever budget was
+  // last active, which can change between calls. Caching under the sentinel would
+  // return stale payees from a different budget if the user switches budgets.
+  const isSentinel = budgetId === "last-used";
+
+  if (!isSentinel) {
+    const cached = payeeCache.get(budgetId);
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+      logger.debug("payee-resolver", "Using cached payees", { budgetId, count: cached.payees.length });
+      return cached.payees;
+    }
   }
 
   logger.info("payee-resolver", "Fetching payees from YNAB API", { budgetId });
   const response = await api.payees.getPayees(budgetId);
   const payees = response.data.payees;
-  payeeCache.set(budgetId, { payees, fetchedAt: Date.now() });
+
+  if (!isSentinel) {
+    payeeCache.set(budgetId, { payees, fetchedAt: Date.now() });
+  }
+
   return payees;
 }
 
@@ -64,7 +75,10 @@ export async function resolveTransferPayee(
   const payees = await getPayees(api, budgetId);
 
   // Transfer payees in YNAB are named "Transfer : <Account Name>"
-  const transferPayees = payees.filter((p) => p.transfer_account_id != null);
+  // Exclude deleted payees — YNAB returns them in the list but they're no longer valid.
+  const transferPayees = payees.filter(
+    (p) => p.transfer_account_id != null && !p.deleted,
+  );
 
   const normalizedInput = normalizeName(payeeName);
   const matches = transferPayees.filter(
