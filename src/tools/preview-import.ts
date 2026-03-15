@@ -61,16 +61,33 @@ export function registerPreviewImport(server: McpServer): void {
           );
         const history = historyResp.data.transactions;
 
-        // Build payee-to-category mapping from history
+        // Build payee-to-category mapping from history (regular transactions only)
         const payeeCategoryMap = new Map<
           string,
           { category_id: string; category_name: string; count: number }
         >();
 
+        // Build transfer payee map from history: keyed by payee_id so each unique
+        // source account is represented once. Used to detect CC payment transactions.
+        const historicalTransferPayees = new Map<
+          string,
+          { payee_id: string; payee_name: string }
+        >();
+
         for (const txn of history) {
-          if (!txn.payee_name || !txn.category_id) {
+          if (!txn.payee_name) continue;
+
+          if (txn.transfer_account_id && txn.payee_id) {
+            // Transfer (e.g. CC payment from Schwab Checking): track payee_id separately
+            historicalTransferPayees.set(txn.payee_id, {
+              payee_id: txn.payee_id,
+              payee_name: txn.payee_name,
+            });
             continue;
           }
+
+          if (!txn.category_id) continue;
+
           const normalized = txn.payee_name.toLowerCase().trim();
           const existing = payeeCategoryMap.get(normalized);
           if (!existing || txn.date > (existing as any).lastDate) {
@@ -82,6 +99,13 @@ export function registerPreviewImport(server: McpServer): void {
           }
         }
 
+        const transferPayeeList = Array.from(historicalTransferPayees.values());
+
+        // Patterns that indicate an autopay / CC payment on a credit card statement.
+        // These are distinct enough to be credit-card-payment specific.
+        const CC_PAYMENT_PATTERNS =
+          [/\bautopay\b/i, /\bauto[- ]?pmt\b/i, /\bauto[- ]?pay\b/i];
+
         // Also fetch payees for name matching
         const payeesResp = await ynab.payees.getPayees(id);
         const ynabPayees = payeesResp.data.payees.filter((p) => !p.deleted);
@@ -89,6 +113,30 @@ export function registerPreviewImport(server: McpServer): void {
         // Match each transaction
         const previews = filteredTransactions.map((txn) => {
           const normalizedPayee = txn.payee.toLowerCase().trim();
+
+          // Check if this looks like a CC payment / autopay entry
+          const isCCPayment = CC_PAYMENT_PATTERNS.some((p) =>
+            p.test(txn.payee),
+          );
+
+          if (isCCPayment && transferPayeeList.length > 0) {
+            // If history shows exactly one source account, we can resolve automatically.
+            // If multiple accounts exist the agent must choose.
+            const resolved =
+              transferPayeeList.length === 1 ? transferPayeeList[0] : null;
+            return {
+              ...txn,
+              is_transfer: true,
+              suggested_category_id: null,
+              suggested_category_name:
+                resolved
+                  ? `CC Payment → ${resolved.payee_name.replace(/^Transfer\s*:\s*/i, "")}`
+                  : "CC Payment (multiple source accounts — choose payee_id)",
+              category_match_confidence: resolved ? "transfer" : "transfer-ambiguous",
+              matched_payee_id: resolved?.payee_id ?? null,
+              matched_payee_name: resolved?.payee_name ?? null,
+            };
+          }
 
           // Try exact match first
           let suggestion = payeeCategoryMap.get(normalizedPayee);
@@ -115,6 +163,7 @@ export function registerPreviewImport(server: McpServer): void {
 
           return {
             ...txn,
+            is_transfer: false,
             suggested_category_id: suggestion?.category_id ?? null,
             suggested_category_name: suggestion?.category_name ?? null,
             category_match_confidence: suggestion
@@ -127,8 +176,9 @@ export function registerPreviewImport(server: McpServer): void {
           };
         });
 
-        const matched = previews.filter((p) => p.suggested_category_id).length;
-        const unmatched = previews.length - matched;
+        const transfers = previews.filter((p) => p.is_transfer).length;
+        const matched = previews.filter((p) => !p.is_transfer && p.suggested_category_id).length;
+        const unmatched = previews.length - transfers - matched;
         const totalAmount = filteredTransactions.reduce(
           (sum, t) => sum + t.amount,
           0,
@@ -140,6 +190,7 @@ export function registerPreviewImport(server: McpServer): void {
           md += `- **Filtered:** ${filteredCount} (before ${since_date})\n`;
         }
         md += `- **Total:** ${milliunitsToDisplay(totalAmount)}\n`;
+        md += `- **Transfers (CC payments):** ${transfers}\n`;
         const categorizedPercent = filteredTransactions.length > 0
           ? Math.round((matched / filteredTransactions.length) * 100)
           : 0;
@@ -152,12 +203,13 @@ export function registerPreviewImport(server: McpServer): void {
           md += `| ${p.date} | ${p.payee} | ${milliunitsToDisplay(p.amount)} | ${p.suggested_category_name ?? "_none_"} | ${p.category_match_confidence} |\n`;
         }
 
-        done("tool", "preview_import completed", { total: filteredTransactions.length, filtered: filteredCount, categorized: matched, uncategorized: unmatched });
+        done("tool", "preview_import completed", { total: filteredTransactions.length, filtered: filteredCount, transfers, categorized: matched, uncategorized: unmatched });
         return formatToolResponse(md, {
           account_id,
           total_count: filteredTransactions.length,
           filtered_count: filteredCount,
           total_amount: totalAmount,
+          transfer_count: transfers,
           categorized_count: matched,
           uncategorized_count: unmatched,
           previews,
