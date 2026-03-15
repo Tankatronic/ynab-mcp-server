@@ -7,6 +7,11 @@ import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
 import { logger, startTimer } from "../utils/logger.js";
 
+// Patterns that indicate an autopay / CC payment on a credit card statement.
+// Combined with an inflow-amount check (amount > 0) to avoid matching charge
+// entries from merchants whose names happen to contain these keywords.
+const CC_PAYMENT_PATTERNS = [/\bautopay\b/i, /\bauto[- ]?pmt\b/i, /\bauto[- ]?pay\b/i];
+
 const parsedTransactionSchema = z.object({
   date: z.string(),
   amount: z.number(),
@@ -101,11 +106,6 @@ export function registerPreviewImport(server: McpServer): void {
 
         const transferPayeeList = Array.from(historicalTransferPayees.values());
 
-        // Patterns that indicate an autopay / CC payment on a credit card statement.
-        // These are distinct enough to be credit-card-payment specific.
-        const CC_PAYMENT_PATTERNS =
-          [/\bautopay\b/i, /\bauto[- ]?pmt\b/i, /\bauto[- ]?pay\b/i];
-
         // Also fetch payees for name matching
         const payeesResp = await ynab.payees.getPayees(id);
         const ynabPayees = payeesResp.data.payees.filter((p) => !p.deleted);
@@ -114,13 +114,31 @@ export function registerPreviewImport(server: McpServer): void {
         const previews = filteredTransactions.map((txn) => {
           const normalizedPayee = txn.payee.toLowerCase().trim();
 
-          // Check if this looks like a CC payment / autopay entry
-          const isCCPayment = CC_PAYMENT_PATTERNS.some((p) =>
-            p.test(txn.payee),
-          );
+          // Check if this looks like a CC payment / autopay entry.
+          // Require amount > 0 (inflow) to avoid matching debit charges whose
+          // merchant name happens to contain "autopay" (e.g. "STATE FARM AUTOPAY").
+          const isCCPayment =
+            txn.amount > 0 &&
+            CC_PAYMENT_PATTERNS.some((p) => p.test(txn.payee));
 
-          if (isCCPayment && transferPayeeList.length > 0) {
-            // If history shows exactly one source account, we can resolve automatically.
+          if (isCCPayment) {
+            if (transferPayeeList.length === 0) {
+              // Autopay pattern detected but no prior transfer history on this account.
+              // Flag it so the agent knows to treat it as a transfer even without a
+              // resolved payee_id (e.g. first import, or prior payments used payee_name).
+              return {
+                ...txn,
+                is_transfer: true,
+                suggested_category_id: null,
+                suggested_category_name:
+                  "CC Payment (no prior transfer history — provide payee_id manually)",
+                category_match_confidence: "transfer-no-history",
+                matched_payee_id: null,
+                matched_payee_name: null,
+              };
+            }
+
+            // If history shows exactly one source account, resolve automatically.
             // If multiple accounts exist the agent must choose.
             const resolved =
               transferPayeeList.length === 1 ? transferPayeeList[0] : null;
@@ -184,6 +202,10 @@ export function registerPreviewImport(server: McpServer): void {
           0,
         );
 
+        // Exclude transfers from the categorized % — transfers are intentionally
+        // uncategorized (YNAB assigns CC payment categories automatically).
+        const regularCount = filteredTransactions.length - transfers;
+
         let md = `## Import Preview\n\n`;
         md += `- **Transactions:** ${filteredTransactions.length}\n`;
         if (filteredCount > 0) {
@@ -191,10 +213,10 @@ export function registerPreviewImport(server: McpServer): void {
         }
         md += `- **Total:** ${milliunitsToDisplay(totalAmount)}\n`;
         md += `- **Transfers (CC payments):** ${transfers}\n`;
-        const categorizedPercent = filteredTransactions.length > 0
-          ? Math.round((matched / filteredTransactions.length) * 100)
+        const categorizedPercent = regularCount > 0
+          ? Math.round((matched / regularCount) * 100)
           : 0;
-        md += `- **Categorized:** ${matched} (${categorizedPercent}%)\n`;
+        md += `- **Categorized:** ${matched} of ${regularCount} (${categorizedPercent}%)\n`;
         md += `- **Uncategorized:** ${unmatched}\n\n`;
 
         md += `| Date | Payee | Amount | Suggested Category | Confidence |\n`;
