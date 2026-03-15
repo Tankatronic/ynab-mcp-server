@@ -6,19 +6,23 @@ import { milliunitsToDisplay } from "../utils/milliunit.js";
 import { detectFormat, readFileContent } from "../parsers/detect-format.js";
 import { parseCsvContent, type CsvColumnMapping } from "../parsers/csv-parser.js";
 import { parseOfxContent } from "../parsers/ofx-parser.js";
+import { parseJsonContent } from "../parsers/json-parser.js";
 import type { ParseResult } from "../parsers/types.js";
 import { logger, startTimer } from "../utils/logger.js";
+
+const CONTENT_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 
 export function registerParseBankExport(server: McpServer): void {
   server.tool(
     "parse_bank_export",
-    "Parse a bank export file (CSV, OFX, or QFX). Auto-detects format and known bank layouts. Returns parsed transactions ready for preview/import.",
+    "Parse a bank export file (CSV, OFX, QFX, or JSON). Auto-detects format and known bank layouts. Returns parsed transactions ready for preview/import.",
     {
-      file_path: z.string().describe("Absolute path to the bank export file"),
+      file_path: z.string().optional().describe("Absolute path to the bank export file"),
+      content: z.string().optional().describe("Raw file content as a string (alternative to file_path)"),
       format_hint: z
-        .enum(["csv", "ofx", "qfx", "auto"])
+        .enum(["csv", "ofx", "qfx", "json", "auto"])
         .optional()
-        .describe("File format hint. Usually auto-detected."),
+        .describe("File format hint. Usually auto-detected. Required when using content parameter."),
       date_format_hint: z
         .enum(["MM/DD/YYYY", "DD/MM/YYYY", "auto"])
         .optional()
@@ -47,18 +51,99 @@ export function registerParseBankExport(server: McpServer): void {
     },
     async ({
       file_path,
+      content,
       format_hint,
       date_format_hint,
       column_mapping,
       invert_amounts,
     }) => {
       const done = startTimer();
-      logger.info("tool", "parse_bank_export invoked", { file_path, format_hint });
+      logger.info("tool", "parse_bank_export invoked", { file_path: !!file_path, content: !!content, format_hint });
       try {
-        const format =
-          format_hint && format_hint !== "auto"
-            ? format_hint
-            : await detectFormat(file_path);
+        // Validation: exactly one of file_path or content must be provided
+        if (!file_path && !content) {
+          logger.warn("tool", "parse_bank_export: neither file_path nor content provided");
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  code: "INVALID_INPUT",
+                  message: "Either file_path or content is required",
+                  retryable: false,
+                }),
+              },
+            ],
+          } as const;
+        }
+
+        if (file_path && content) {
+          logger.warn("tool", "parse_bank_export: both file_path and content provided");
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  code: "INVALID_INPUT",
+                  message: "Provide either file_path or content, not both",
+                  retryable: false,
+                }),
+              },
+            ],
+          } as const;
+        }
+
+        // When content is provided, format_hint is required (and cannot be "auto")
+        if (content && (!format_hint || format_hint === "auto")) {
+          logger.warn("tool", "parse_bank_export: content provided without valid format_hint");
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  code: "INVALID_INPUT",
+                  message: "format_hint is required when using content (csv, ofx, qfx, or json)",
+                  retryable: false,
+                }),
+              },
+            ],
+          } as const;
+        }
+
+        // Validate content size
+        if (content && content.length > CONTENT_SIZE_LIMIT) {
+          logger.warn("tool", "parse_bank_export: content exceeds size limit", { size: content.length });
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  code: "CONTENT_TOO_LARGE",
+                  message: "Content exceeds 5MB limit",
+                  retryable: false,
+                }),
+              },
+            ],
+          } as const;
+        }
+
+        let format: string;
+        let fileContent: string;
+
+        if (content) {
+          format = format_hint!;
+          fileContent = content;
+        } else {
+          format =
+            format_hint && format_hint !== "auto"
+              ? format_hint
+              : await detectFormat(file_path!);
+          fileContent = await readFileContent(file_path!);
+        }
 
         if (format === "unknown") {
           logger.warn("tool", "parse_bank_export: unsupported format", { file_path });
@@ -69,7 +154,7 @@ export function registerParseBankExport(server: McpServer): void {
                 type: "text" as const,
                 text: JSON.stringify({
                   code: "UNSUPPORTED_FORMAT",
-                  message: `Could not detect file format for: ${file_path}. Supported formats: CSV, OFX, QFX.`,
+                  message: `Could not detect file format for: ${file_path}. Supported formats: CSV, OFX, QFX, JSON.`,
                   retryable: false,
                 }),
               },
@@ -77,17 +162,20 @@ export function registerParseBankExport(server: McpServer): void {
           } as const;
         }
 
-        const content = await readFileContent(file_path);
         let result: ParseResult;
 
         if (format === "csv") {
-          result = parseCsvContent(content, {
+          result = parseCsvContent(fileContent, {
             columnMapping: column_mapping as CsvColumnMapping | undefined,
             dateFormatHint: date_format_hint,
             invertAmounts: invert_amounts,
           });
+        } else if (format === "json") {
+          result = parseJsonContent(fileContent, {
+            dateFormatHint: date_format_hint,
+          });
         } else {
-          result = await parseOfxContent(content, format);
+          result = await parseOfxContent(fileContent, format as "ofx" | "qfx");
         }
 
         const totalAmount = result.transactions.reduce(
