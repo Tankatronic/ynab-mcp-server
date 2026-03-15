@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getYnabClient } from "../ynab/client.js";
 import { resolveBudgetId } from "../ynab/types.js";
+import { resolveTransferPayee } from "../ynab/payee-resolver.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
@@ -49,11 +50,30 @@ export function registerUpdateTransaction(server: McpServer): void {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
 
+        // Smart transfer payee resolution: if payee_name looks like an account name
+        // and no explicit payee_id was supplied, try to resolve to a transfer payee_id.
+        let resolvedPayeeName = payee_name;
+        let resolvedPayeeId = payee_id;
+
+        if (payee_name !== undefined && payee_id === undefined) {
+          const transferMatch = await resolveTransferPayee(ynab, id, payee_name);
+          if (transferMatch && "error" in transferMatch) {
+            return formatToolResponse(
+              `## Error: Ambiguous Payee\n\n${transferMatch.error}\n\nMatching transfer accounts:\n${transferMatch.matches.map((m) => `- ${m}`).join("\n")}`,
+              { error: transferMatch.error, matches: transferMatch.matches },
+            );
+          }
+          if (transferMatch) {
+            resolvedPayeeId = transferMatch.payee_id;
+            resolvedPayeeName = undefined; // payee_id takes precedence
+          }
+        }
+
         const updates: Record<string, unknown> = {};
         if (date !== undefined) updates.date = date;
         if (amount !== undefined) updates.amount = amount;
-        if (payee_name !== undefined) updates.payee_name = payee_name;
-        if (payee_id !== undefined) updates.payee_id = payee_id;
+        if (resolvedPayeeName !== undefined) updates.payee_name = resolvedPayeeName;
+        if (resolvedPayeeId !== undefined) updates.payee_id = resolvedPayeeId;
         if (category_id !== undefined) updates.category_id = category_id;
         if (memo !== undefined) updates.memo = memo;
         if (cleared !== undefined) updates.cleared = cleared;
