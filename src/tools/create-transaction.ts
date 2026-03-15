@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getYnabClient } from "../ynab/client.js";
 import { resolveBudgetId } from "../ynab/types.js";
+import { resolveTransferPayee } from "../ynab/payee-resolver.js";
 import { formatError } from "../utils/errors.js";
 import { formatToolResponse } from "../utils/response-formatter.js";
 import { milliunitsToDisplay } from "../utils/milliunit.js";
@@ -23,7 +24,9 @@ export function registerCreateTransaction(server: McpServer): void {
       payee_name: z
         .string()
         .optional()
-        .describe("Payee name. YNAB will match to existing payees."),
+        .describe(
+          "Payee name. If this matches a YNAB account name (e.g. \"Schwab Checking\" or \"Transfer : Schwab Checking\"), it is automatically resolved to the correct transfer payee ID — use this for credit card payments and account transfers. For regular payees, YNAB matches by name as usual.",
+        ),
       payee_id: z.string().optional().describe("Existing payee ID"),
       category_id: z
         .string()
@@ -69,12 +72,32 @@ export function registerCreateTransaction(server: McpServer): void {
         const ynab = getYnabClient();
         const id = resolveBudgetId(budget_id);
 
+        // Smart transfer payee resolution: if payee_name looks like an account name
+        // and no explicit payee_id was supplied, try to resolve to a transfer payee_id.
+        let resolvedPayeeName = payee_name ?? undefined;
+        let resolvedPayeeId = payee_id ?? undefined;
+
+        if (payee_name && !payee_id) {
+          const transferMatch = await resolveTransferPayee(ynab, id, payee_name);
+          if (transferMatch && "error" in transferMatch) {
+            done("tool", "create_transaction aborted: ambiguous payee", {});
+            return formatToolResponse(
+              `## Error: Ambiguous Payee\n\n${transferMatch.error}\n\nMatching transfer accounts:\n${transferMatch.matches.map((m) => `- ${m}`).join("\n")}`,
+              { error: transferMatch.error, matches: transferMatch.matches },
+            );
+          }
+          if (transferMatch) {
+            resolvedPayeeId = transferMatch.payee_id;
+            resolvedPayeeName = undefined; // payee_id takes precedence
+          }
+        }
+
         const transaction: Record<string, unknown> = {
           account_id,
           date,
           amount,
-          payee_name: payee_name ?? undefined,
-          payee_id: payee_id ?? undefined,
+          payee_name: resolvedPayeeName,
+          payee_id: resolvedPayeeId,
           category_id: category_id ?? undefined,
           memo: memo ?? undefined,
           cleared: cleared ?? "uncleared",
